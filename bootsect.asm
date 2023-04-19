@@ -21,15 +21,15 @@ _start:
 	mov $0x19, %al      # sectors amount 
 	int $0x13
 
-    # clearing the consol
-    mov $0x03, %ax      # specific func for that
-    int $0x10
-
     # moving back the corette
     mov $0x2, %ah
     xor %bh, %bh
     xor %dl, %dl
     int $0x10
+    mov $0x03, %ax      # specific func for that
+    int $0x10
+
+    call usr_handler
 
     # int disable
     cli
@@ -48,6 +48,74 @@ _start:
     
     # long jump for right info loading in cs, cant do that straight
     ljmp $0x8, $protected_mode
+clr_scr:
+    mov $0x03, %ax          # specific func for that
+    int $0x10
+    ret
+usr_handler:
+    # moving back the corette
+    mov $0x2, %ah
+    xor %bh, %bh
+    xor %dl, %dl
+    int $0x10
+    mov $0x03, %ax      # specific func for that
+    int $0x10
+                            # saves video buffer addr in %edi
+    mov $0xb8000, %edi
+    mov $chosen_letters, %edx 
+    mov $alph_small, %ecx 
+
+    call clr_scr
+
+    mov $usr_instruction, %esi
+    call video_puts
+    mov %edx, %esi
+    call video_puts
+
+    mov $0x0, %ah           # getting letter
+    int $0x16
+    
+    mov $enter_symbol, %ebx
+    cmp %ah, (%ebx)
+    jz put_in_mem
+
+    mov $0x0, %ebx
+    mov $0x1C, %edx
+check_lett_in_alph:
+    cmp %al, (%ecx, %ebx)
+    jz change_letter
+
+    inc %ebx
+    cmp %ebx, %edx
+    jnz check_lett_in_alph
+    jmp usr_handler
+change_letter:
+    mov $chosen_letters, %edx 
+    cmp %al, (%edx, %ebx)
+    jnz set_letter
+    mov $0x5F, %al
+set_letter:
+    mov %al, (%edx, %ebx)
+    jmp usr_handler
+put_in_mem:
+    jmp put_in_mem
+
+video_puts:
+    # after end %edi have adr at which u can continue outputin
+    mov 0(%esi), %al
+    test %al, %al
+    jz video_puts_end
+
+    # colour lightgrey 07 is default 0x2A is green
+    mov $0x07, %ah
+    mov %al, 0(%edi)
+    mov %ah, 1(%edi)
+
+    add $2, %edi
+    add $1, %esi
+    jmp video_puts
+video_puts_end:
+    ret
 
 # describin global descriptors table
 # data about GDT table
@@ -64,7 +132,18 @@ gdt_info:
     .word gdt_info - gdt    # size : 2 byte
     .word gdt, 0            # 32 bit phys table addr
 
-
+usr_instruction:
+    .asciz "Type letters from which the desired words begin: "
+alph_small:
+    .asciz "abcdefghijklmnopqrstuvwxyz"
+alph_big:
+    .asciz "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+chosen_letters:
+    .asciz "__________________________"
+enter_symbol:
+    .byte 0x0D
+alph_sz:
+    .byte 0x1C
 .code32
 protected_mode:
     # loading seg selectors for stack and data in regs
