@@ -20,12 +20,24 @@ __asm("jmp kmain");
 
 #define MAX_COMMAND_LENGTH (40)
 
+#define COMMAND_START_POS (8)
+#define COMMAND_START_STRNUM (0)
 
 int user_color = 0x02;
 unsigned int current_pos = 0;
 unsigned int current_strnum = 0;
 
-char usrinp[27];
+char btrinp[27];
+char usrinp[40];
+char tmpbuf[40];
+
+const char* hello = "Welcome to DistrOS!";
+const char* os_info[] = 
+{
+    "DistrOS: v0.1",
+    "Developer: Bilan Nikita (scanel), 53/2, SPbPU, 2023",
+    "Compilers: gcc 11.3.0"
+};
 
 char scan_code_to_symbol[] = {
     0, 0,
@@ -75,16 +87,19 @@ void intr_disable();
 
 void intr_init();
 void keyb_init();
+void usrinp_init();
 
 static inline unsigned char inb(unsigned short port);
 static inline void outb(unsigned short port, unsigned char data);
 static inline void outw(unsigned short port, unsigned short data);
 
-bool strcmp(unsigned char* str1, const char* str2);
+void handle_booter_inp();
+
+bool strcmp(const char* str1, const char* str2);
 void print_symbol(unsigned char scan_code);
-void on_key(unsigned char scan_code);
 void backspace_key();
 void enter_key();
+
 
 void command_handler();
 void info_command();
@@ -169,27 +184,30 @@ void print_symbol(unsigned char scan_code)
     char c = scan_code_to_symbol[scan_code];
     if (c == 0)
         return;
-    out_str(user_color, &c, 1);
+    usrinp[current_pos] = c;
     current_pos++;
+    usrinp[current_pos] = '\0';
+    out_str(user_color, usrinp, current_strnum);
     cursor_moveto(current_strnum, current_pos);
 }
 
-bool strcmp(unsigned char* str1, const char* str2)
+bool strcmp(const char* str1, const char* str2)
 {
-    while (*str1 == *str2 && *str1 != 0 && *str1 != ' ' && *str2 != 0)
+    while (*str1 == *str2 && *str1 != '\0' && str2 != '\0')
     {
-        str1 += 2;
+        str1++;
         str2++;
     }
-    if (*str1 == *str2)
+    if (*str1 == '\0' && *str2 == '\0')
         return true;
     return false;
 }
 
 void backspace_key()
 {
-    if (current_pos >= 3)
+    if (current_pos > COMMAND_START_POS)
     {
+        usrinp[current_pos] = '\0';
         current_pos--;
         unsigned char* video_buf = (unsigned char*) VIDEO_BUF_PTR;
         video_buf += 2 * (current_strnum * VIDEO_WIDTH + current_pos);
@@ -201,10 +219,10 @@ void backspace_key()
 void enter_key()
 {
     command_handler();
-    current_pos = 0;
-    out_str(user_color, "# ", 0);
-    current_pos = 2;
-    cursor_moveto(current_strnum, 2);
+    current_pos = COMMAND_START_POS;
+    usrinp[current_pos] = '\0';
+    out_str(user_color, usrinp, current_strnum);
+    cursor_moveto(current_strnum, current_pos);
 }
 
 void keyb_process_keys()
@@ -229,11 +247,6 @@ void keyb_process_keys()
     }
 }
 
-void on_key(unsigned char scan_code)
-{
-    
-}
-
 void keyb_handler()
 {
     asm("pusha");
@@ -246,29 +259,43 @@ void keyb_handler()
     asm("popa; leave; iret");
 }
 
+void put_usrinp_to_tmpbuf()
+{
+    for(int i = COMMAND_START_POS; i < current_pos; i++)
+        tmpbuf[i - COMMAND_START_POS] = usrinp[i];
+    
+    tmpbuf[current_pos - COMMAND_START_POS] = '\0';
+}
+
 void command_handler()
 {
     unsigned char* video_buf = (unsigned char*) VIDEO_BUF_PTR;
     video_buf += 2 * (current_strnum * VIDEO_WIDTH + 2);
 
+    put_usrinp_to_tmpbuf();
+
     current_strnum++;
     current_pos = 0;
 
-    if (strcmp(video_buf, "info"))
+    if (strcmp(tmpbuf, "info\0"))
         info_command();
-    // else if (strcmp(video_buf, "expr "))
-    //     expr_command(video_buf + 10);
-    else if (strcmp(video_buf, "shutdown"))
+    else if (strcmp(tmpbuf, "shutdown\0"))
         shutdown_command();
+    else if(strcmp(tmpbuf, "clear\0"))
+        clr_scr();
     else
         unknown_command();
-
-    current_strnum += 2;
 }
 
 void info_command()
 {
-
+    if (current_strnum + 4 >= VIDEO_HEIGHT)
+    {
+        clr_scr();
+        current_strnum = 0;
+    }
+    for(int i = 0; i < 3; i++, current_strnum++)
+        out_str(0x07, os_info[i], current_strnum);
 }
 
 void unknown_command()
@@ -278,7 +305,13 @@ void unknown_command()
         clr_scr();
         current_strnum = 0;
     }
-    out_str(user_color, "Error: command not recognized", 0);
+    out_str(user_color, "Error: command not recognized", current_strnum);
+    current_strnum++;
+}
+
+static inline void shutdown_command()
+{
+    outw (0x604, 0x2000);
 }
 
 void intr_start()
@@ -314,22 +347,13 @@ void out_str(int color, const char* ptr, unsigned int strnum)
     }
 }
 
-// void clr_scr() 
-// {
-//     unsigned char* video_buf = (unsigned char*)VIDEO_BUF_PTR;
-//     for(int i = 0; i < 2000; i++)
-//     {
-//         video_buf[0] = ' ';
-//         video_buf[1] = 0x07;
-//         video_buf += 2;
-//     }
-// }
-
 void clr_scr()
 {
     unsigned char* video_buf = (unsigned char*) VIDEO_BUF_PTR;
     for (int i = 0; i <= VIDEO_WIDTH * VIDEO_HEIGHT * 2; i++)
         video_buf[i] = 0;
+    current_pos = COMMAND_START_POS;
+    current_strnum = COMMAND_START_STRNUM;
 }
 
 void cursor_moveto(unsigned int strnum, unsigned int pos)
@@ -341,44 +365,50 @@ void cursor_moveto(unsigned int strnum, unsigned int pos)
     outb(CURSOR_PORT + 1, (unsigned char)( (new_pos >> 8) & 0xFF));
 }
 
-static inline void shutdown_command()
+void handle_booter_inp()
 {
-    outw (0x604, 0x2000);
+    char *ptr = (char *)0x9000;
+    int usr_iter = 0;
+    for(int i = 0; i < 26; i++)
+    {
+        if(*ptr != '_')
+        {
+            btrinp[usr_iter] = *ptr;
+            usr_iter++;
+        }
+        ptr++;
+    }
+    btrinp[usr_iter] = '\0';
 }
 
+void usrinp_init()
+{
+    usrinp[0] = 's';
+    usrinp[1] = 'c';
+    usrinp[2] = 'a';
+    usrinp[3] = 'n';
+    usrinp[4] = 'e';
+    usrinp[5] = 'l';
+    usrinp[6] = '#';
+    usrinp[7] = ' ';
+    current_pos = COMMAND_START_POS;
+    current_strnum = COMMAND_START_STRNUM;
+    out_str(user_color, usrinp, current_strnum);
+    cursor_moveto(current_strnum, current_pos + 1);
+}
 
 extern "C" int kmain()
 {
+    intr_disable();
+
     intr_init();
-    intr_start();
     keyb_init();
+    handle_booter_inp();  
+    usrinp_init();  
 
-    char *ptr = (char *)0x9000;
-    // if(*ptr == *ptr)
-    //     out_str(0x07, ptr, 0);
-    // else
-    //     out_str(0x07, "0", 0);
-    for(int i = 0; i < 26; i++)
-    {
-        usrinp[i] = *ptr;
-        ptr++;
-    }
-    usrinp[26] = '\0';
-    out_str(0x07, usrinp, 0);
-
-    const char* hello = "Welcome to DistrOS!";
-    const char* os_info[] = 
-    {
-        "DistrOS: v0.1",
-        "Developer: Bilan Nikita (scanel), 53/2, SPbPU, 2023",
-        "Compilers: gcc 11.3.0"
-    };
-
-    // printin str out
-    // out_str(0x07, hello, 0);
-    // for(int i = 0; i < 3; i++)
-    //     out_str(0x07, os_info[i], i + 1);
-
+    intr_start();
+    intr_enable();
+    
     while(1)
     {
         asm("hlt");
