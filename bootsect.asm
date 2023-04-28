@@ -29,8 +29,16 @@ _start:
     mov $0x03, %ax      # specific func for that
     int $0x10
 
-    call usr_handler
+    mov $0x9000 ,%esi
+    mov $0x61, %bh
+    mov %bh, (%esi)
+    add $0x1, %esi
+    mov $0x62, %bh
+    mov %bh, (%esi)
+    # mov $0x2E, %ebx
 
+    call usr_handler
+    call clr_scr
     # int disable
     cli
     # loading size & addr of descr table
@@ -58,7 +66,7 @@ usr_handler:
     xor %bh, %bh
     xor %dl, %dl
     int $0x10
-    mov $0x03, %ax      # specific func for that
+    mov $0x03, %ax          # specific func for that
     int $0x10
                             # saves video buffer addr in %edi
     mov $0xb8000, %edi
@@ -76,7 +84,7 @@ usr_handler:
     int $0x16
     
     mov $enter_symbol, %ebx
-    cmp %ah, (%ebx)
+    cmp %al, (%ebx)
     jz put_in_mem
 
     mov $0x0, %ebx
@@ -97,8 +105,20 @@ change_letter:
 set_letter:
     mov %al, (%edx, %ebx)
     jmp usr_handler
+
 put_in_mem:
-    jmp put_in_mem
+    mov $0x9000, %edx
+    mov $0x0, %ecx
+    movw $chosen_letters, %bx
+put_loop:
+    movw 0(%bx), %ax
+    movw %ax, (%edx)
+    addw $2, %bx
+    add $2, %edx
+    add $2, %ecx
+    cmp $0x1A, %ecx
+    jnz put_loop
+    ret
 
 video_puts:
     # after end %edi have adr at which u can continue outputin
@@ -116,7 +136,6 @@ video_puts:
     jmp video_puts
 video_puts_end:
     ret
-
 # describin global descriptors table
 # data about GDT table
 gdt:
@@ -136,8 +155,6 @@ usr_instruction:
     .asciz "Type letters from which the desired words begin: "
 alph_small:
     .asciz "abcdefghijklmnopqrstuvwxyz"
-alph_big:
-    .asciz "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 chosen_letters:
     .asciz "__________________________"
 enter_symbol:
