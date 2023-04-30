@@ -18,24 +18,8 @@ _start:
 	mov $1, %dl         # disk numb
 
     mov $0x02, %ah      # read from floppy to memory func
-	mov $0x19, %al      # sectors amount 
+	mov $0x1D, %al      # sectors amount includes kernel
 	int $0x13
-
-    # moving back the corette
-    mov $0x2, %ah
-    xor %bh, %bh
-    xor %dl, %dl
-    int $0x10
-    mov $0x03, %ax      # specific func for that
-    int $0x10
-
-    mov $0x9000 ,%esi
-    mov $0x61, %bh
-    mov %bh, (%esi)
-    add $0x1, %esi
-    mov $0x62, %bh
-    mov %bh, (%esi)
-    # mov $0x2E, %ebx
 
     call usr_handler
     call clr_scr
@@ -61,13 +45,6 @@ clr_scr:
     int $0x10
     ret
 usr_handler:
-    # moving back the corette
-    mov $0x2, %ah
-    xor %bh, %bh
-    xor %dl, %dl
-    int $0x10
-    mov $0x03, %ax          # specific func for that
-    int $0x10
                             # saves video buffer addr in %edi
     mov $0xb8000, %edi
     mov $chosen_letters, %edx 
